@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>学长团纪律股智能排班系统 v15.8</title>
+    <style>
+        :root { --primary: #2c3e50; --accent: #27ae60; --error: #f44336; --bg: #f4f7f6; --info: #3498db; }
+        body { font-family: -apple-system, sans-serif; background: var(--bg); padding-bottom: 220px; color: #333; margin: 0; }
+        .card { background: white; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); overflow: hidden; max-width: 650px; margin: 15px auto; }
+        .header { background: var(--primary); color: white; padding: 15px; text-align: center; }
+        .cycle-bar { padding: 10px; text-align: center; font-weight: bold; color: white; }
+        .day-section { padding: 15px; border-bottom: 10px solid var(--bg); }
+        .day-title { font-size: 16px; font-weight: bold; color: var(--primary); border-left: 4px solid var(--accent); padding-left: 10px; margin-bottom: 10px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; border-radius: 8px; overflow: hidden; }
+        th { background: #f8f9fa; text-align: left; padding: 10px; border-bottom: 1px solid #eee; width: 40%; color: #666; }
+        td { padding: 8px; border-bottom: 1px solid #eee; position: relative; }
+        .editable { min-height: 20px; outline: none; width: 100%; padding: 2px; }
+        .conflict-row { background-color: #fff1f0 !important; }
+        .controls { position: fixed; bottom: 0; left: 0; right: 0; padding: 12px; background: white; border-top: 1px solid #ddd; z-index: 1000; box-shadow: 0 -5px 10px rgba(0,0,0,0.05); }
+        .btn-group { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; max-width: 650px; margin: auto; }
+        button { padding: 10px 4px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 12px; transition: 0.2s; }
+        .btn-next { background: var(--accent); color: white; grid-column: span 4; font-size: 15px; margin-bottom: 4px; padding: 14px; }
+        .btn-copy { background: var(--info); color: white; }
+        .btn-leave { background: #95a5a6; color: white; }
+        .btn-jump { background: #f39c12; color: white; }
+        .btn-reset { background: #e74c3c; color: white; }
+        .type-tag { font-size: 10px; color: #999; margin-right: 5px; border: 1px solid #ddd; padding: 0 3px; border-radius: 3px; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <div class="header">
+        <h2 style="margin:0">纪律股岗位分布表</h2>
+        <div id="date-range" contenteditable="true" style="font-size:12px; opacity:0.8; margin-top:5px; border-bottom: 1px dashed #fff; display: inline-block;">点击设置日期范围</div>
+    </div>
+    <div id="cycle-bar" class="cycle-bar"></div>
+    <div id="main-content"></div>
+</div>
+
+<div class="controls">
+    <div class="btn-group">
+        <button class="btn-next" onclick="nextCycle()">🔄 切换下一周期 (多样化平衡)</button>
+        <button class="btn-copy" onclick="copyToWhatsApp()">📋 复制通知</button>
+        <button class="btn-leave" onclick="manageLeave()">🚩 请假管理</button>
+        <button class="btn-jump" onclick="jumpToCycle()">📌 跳转轮次</button>
+        <button class="btn-reset" onclick="resetAll()">🗑️ 重置</button>
+    </div>
+</div>
+
+<script>
+// [teamData, stations, cycles 保持不变]
+const teamData = {
+    1: { jr: ["林语煊(队长)（旧）", "洪凱绮（新）", "叶抒澔（新）", "彭宇谦（新）", "颜敬馨（新）", "陈盈彤（新）", "李苡瑈（新）", "叶欣霖（新）", "许佳恩（旧）"], sr: ["洪于忠（旧）", "李乐萱（旧）", "鍾楗伟（旧）", "刘雨宁（旧）"] },
+    2: { jr: ["林裕涵(队长)（旧）", "郑敬耀（新）", "吴旭恒（新）", "黄研喆（新）", "彭皓雯（新）", "罗亦晴（新）", "游芷芊（旧）", "余芷晴（新）"], sr: ["叶渝恬（旧）", "江蕙莉（旧）", "许悦（旧）", "王彦予（旧）"] },
+    3: { jr: ["王苡洁(队长)（旧）", "黄心莲（新）", "黄杰隆（新）", "李同伊（新）", "杨振誉（新）", "杨卉（新）", "孙巧恩（旧）", "江靖瑄（新）", "江玮恒（新）"], sr: ["李家莹（旧）", "谢霈怡（旧）", "徐欣仪（旧）", "陈慧瑾（旧）", "陈乐慈（旧）"] },
+    4: { jr: ["林妍芯(队长)（旧）", "林敬钦（新）", "林楀涵（新）", "周芷妤（新）", "李祥立（新）", "郑芯甜（新）", "彭诗惠（新）", "刘俞萱（旧）", "吕乐萱（新）"], sr: ["吴旭弘（旧）", "陈子宇（旧）", "郑宇哲（旧）", "王彦心（旧）", "杨雯璇（旧）"] }
+};
+
+const stations = [
+    { name: "大食堂总巡", type: 1, limit: 1, priority: 1 },
+    { name: "巡国字楼", type: 3, limit: 1, priority: 2 }, 
+    { name: "巡教学楼", type: 3, limit: 1, priority: 3 },
+    { name: "巡科技楼", type: 3, limit: 1, priority: 4 },
+    { name: "7号糕档+8号水档", type: 2, limit: 1, priority: 5 },
+    { name: "3号面档", type: 2, limit: 1, priority: 6 },
+    { name: "6号素食档", type: 2, limit: 1, priority: 7 },
+    { name: "4号面档", type: 2, limit: 1, priority: 8 },
+    { name: "巡国字楼 ", type: 3, limit: 1, priority: 9, isExtra: true },
+    { name: "巡教学楼 ", type: 3, limit: 1, priority: 9, isExtra: true },
+    { name: "巡科技楼 ", type: 3, limit: 1, priority: 9, isExtra: true },
+    { name: "小食堂总巡", type: 1, limit: 1, priority: 10 },
+    { name: "2号饭档", type: 2, limit: 1, priority: 11 },
+    { name: "5号饭档", type: 2, limit: 1, priority: 12 },
+    { name: "9号水档", type: 2, limit: 1, priority: 13 },
+    { name: "教学楼梯口", type: 4, limit: 1, priority: 20 },
+    { name: "科技底楼", type: 4, limit: 1, priority: 21 },
+    { name: "礼堂后楼梯口", type: 4, limit: 1, priority: 22 },
+    { name: "左国字楼梯口", type: 4, limit: 1, priority: 23 },
+    { name: "右国字楼梯口", type: 4, limit: 1, priority: 24 }
+];
+
+// 轮换规则：每4轮一个循环，队伍时段按指定规律轮转，人员因历史次数不同而变化
+const cycles = [
+    { name: "第一轮 · 队1一三五①休 队2一三五②休 队3二四①休 队4二四②休", mon: {b1:1, b2:2}, tue: {b1:3, b2:4}, color: "#e67e22" },
+    { name: "第二轮 · 队1一三五②休 队2二四①休 队3二四②休 队4一三五①休", mon: {b1:4, b2:1}, tue: {b1:2, b2:3}, color: "#2980b9" },
+    { name: "第三轮 · 队1二四①休 队2二四②休 队3一三五①休 队4一三五②休", mon: {b1:3, b2:4}, tue: {b1:1, b2:2}, color: "#8e44ad" },
+    { name: "第四轮 · 队1二四②休 队2一三五①休 队3一三五②休 队4二四①休", mon: {b1:2, b2:3}, tue: {b1:4, b2:1}, color: "#c0392b" }
+];
+
+let curIdx = parseInt(localStorage.getItem('v15_idx')) || 0;
+let leaveList = JSON.parse(localStorage.getItem('v15_leave')) || [];
+let historyMap = JSON.parse(localStorage.getItem('v15_history')) || {};
+
+function autoAssign(teamKey, mode) {
+    let pool = (mode==='jr' ? [...teamData[teamKey].jr] : mode==='sr' ? [...teamData[teamKey].sr] : [...teamData[teamKey].jr, ...teamData[teamKey].sr])
+               .filter(n => !leaveList.includes(n));
+    const offset = (curIdx * 7) % Math.max(1, pool.length);
+    pool = pool.concat(pool.splice(0, offset));
+    let seniors = pool.filter(n => n.includes("（旧）"));
+    let juniors = pool.filter(n => n.includes("（新）"));
+    let result = {};
+    const sortedStations = [...stations].sort((a,b) => a.priority - b.priority);
+    sortedStations.forEach(st => {
+        if (mode === 'sr' && st.name.includes("巡国字楼")) return;
+        if (mode === 'jr' && st.name.includes("巡科技楼")) return;
+        let targetPool = (st.priority <= 8 && seniors.length > 0) ? seniors : (juniors.length > 0 ? juniors : seniors);
+        if(targetPool.length > 0) {
+            targetPool.sort((a, b) => {
+                if(!historyMap[a]) historyMap[a] = { 1:0, 2:0, 3:0, 4:0 };
+                if(!historyMap[b]) historyMap[b] = { 1:0, 2:0, 3:0, 4:0 };
+                return (historyMap[a][st.type] || 0) - (historyMap[b][st.type] || 0);
+            });
+            let p = targetPool.shift();
+            const baseName = st.name.trim();
+            if(st.isExtra && result[baseName]) { result[baseName].push(p); } else { result[baseName] = [p]; }
+            if(!historyMap[p]) historyMap[p] = { 1:0, 2:0, 3:0, 4:0 };
+            historyMap[p][st.type] = (historyMap[p][st.type] || 0) + 1;
+        } else if(!st.isExtra) { result[st.name] = ["-"]; }
+    });
+    localStorage.setItem('v15_history', JSON.stringify(historyMap));
+    return result;
+}
+
+function checkConflicts() {
+    const counts = {};
+    const cells = document.querySelectorAll('.editable');
+    cells.forEach(el => {
+        const day = el.dataset.day;
+        const names = el.innerText.split(/[,，\s\n]+/).filter(n => n && n !== "-");
+        names.forEach(n => { counts[`${day}_${n}`] = (counts[`${day}_${n}`] || 0) + 1; });
+    });
+    cells.forEach(el => {
+        const day = el.dataset.day;
+        const names = el.innerText.split(/[,，\s\n]+/).filter(n => n && n !== "-");
+        const hasConflict = names.some(n => counts[`${day}_${n}`] > 1);
+        el.closest('tr').classList.toggle('conflict-row', hasConflict);
+        el.style.color = hasConflict ? "red" : "inherit";
+    });
+}
+
+function render() {
+    const config = cycles[curIdx % cycles.length];
+    document.getElementById('cycle-bar').innerText = `${config.name} (轮数: ${curIdx + 1})`;
+    document.getElementById('cycle-bar').style.background = config.color;
+    const layouts = [
+        { label: "一三五 一休", t: config.mon.b1, m: 'all', day: 'mon' },
+        { label: "一三五 二休(初中)", t: config.mon.b2, m: 'jr', day: 'mon' },
+        { label: "一三五 二休(高中)", t: config.mon.b2, m: 'sr', day: 'mon' },
+        { label: "二四 一休", t: config.tue.b1, m: 'all', day: 'tue' },
+        { label: "二四 二休(初中)", t: config.tue.b2, m: 'jr', day: 'tue' },
+        { label: "二四 二休(高中)", t: config.tue.b2, m: 'sr', day: 'tue' }
+    ];
+    let html = '';
+    layouts.forEach(l => {
+        const assigned = autoAssign(l.t, l.m);
+        const displayStations = stations.filter(s => !s.isExtra);
+        let rows = '';
+        displayStations.forEach(st => {
+            if (!assigned.hasOwnProperty(st.name)) return;
+            const names = (assigned[st.name] || ["-"]).join(", ");
+            rows += `<tr><th><span class="type-tag">${st.type}</span>${st.name}</th><td><div class="editable" contenteditable="true" data-day="${l.day}" onblur="checkConflicts()">${names}</div></td>`;
+        });
+        html += `<div class="day-section"><div class="day-title">${l.label} (第${l.t}队)</div><table>${rows}</table></div>`;
+    });
+    document.getElementById('main-content').innerHTML = html;
+    checkConflicts();
+}
+
+function nextCycle() {
+    if(confirm("确定切换到下一周期？")) {
+        curIdx++; localStorage.setItem('v15_idx', curIdx);
+        render(); window.scrollTo(0,0);
+    }
+}
+
+function jumpToCycle() {
+    let target = prompt("请输入要跳转到的轮数 (1-100):", curIdx + 1);
+    if(target && !isNaN(target)) {
+        curIdx = parseInt(target) - 1;
+        if(curIdx < 0) curIdx = 0;
+        localStorage.setItem('v15_idx', curIdx);
+        render();
+        window.scrollTo(0,0);
+    }
+}
+
+function manageLeave() {
+    let input = prompt("请输入请假名单:", leaveList.join(" "));
+    if(input !== null) {
+        leaveList = input.split(/\s+/).filter(n => n.length > 0);
+        localStorage.setItem('v15_leave', JSON.stringify(leaveList));
+        render();
+    }
+}
+
+function resetAll() {
+    if(confirm("确定重置？历史岗位次数将被清空。")) {
+        localStorage.clear(); location.reload();
+    }
+}
+
+function copyToWhatsApp() {
+    let dateStr = document.getElementById('date-range').innerText;
+    let text = `📅 *纪律股岗位分布表 (${dateStr})*\n\n`;
+    document.querySelectorAll('.day-section').forEach(s => {
+        text += `📌 *${s.querySelector('.day-title').innerText}*\n`;
+        s.querySelectorAll('tr').forEach(r => {
+            const rawNames = r.querySelector('.editable').innerText;
+            if(rawNames !== "-" && rawNames.trim() !== "") {
+                const cleanNames = rawNames.replace(/\(队长\)|（新）|（旧）|\(.*?\)|（.*?）/g, "").trim();
+                const posName = r.querySelector('th').innerText.replace(/^\d\s*/, '').trim(); 
+                text += `• ${posName}: ${cleanNames}\n`;
+            }
+        });
+        text += `\n`;
+    });
+    navigator.clipboard.writeText(text.trim()).then(() => alert("✅ 已复制！"));
+}
+
+render();
+</script>
+</body>
+</html>
